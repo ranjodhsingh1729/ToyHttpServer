@@ -61,7 +61,7 @@ int main() {
         exit(1);
     }
 
-    log_info("SERVER IS NOW LISTNING...");
+    log_info("SERVER IS NOW LISTNING AT %s:%d...", HOST_NAME, PORT);
 
     struct pollfd pollfds[2];
     pollfds[0].fd = server_sock_in_fd;
