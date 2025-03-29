@@ -1,6 +1,6 @@
 # A TOY HTTP SERVER
 
-This is my toy implementation of an extremely basic http server.
+This is my toy implementation of an extremely basic http server. Any and all suggestions are welcome.
 
 ## High Level Design Targets
 
