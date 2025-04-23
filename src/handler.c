@@ -1,9 +1,22 @@
+#include "logger.h"
 #include "handler.h"
+#include "parser.h"
+
 
 void http_return_error(int err_code, int client_sock_fd) {
     char res_buf[MAX_RES_LEN];
     int nbytes = snprintf(res_buf, MAX_RES_LEN, ERR_RES_FMT_STR, err_code, http_status_message(err_code));
-    send(client_sock_fd, res_buf, nbytes, 0);
+    if (send(client_sock_fd, res_buf, nbytes, 0) < 0) {
+        log_error("Failed to send error response: %s", strerror(errno));
+    }
+    // Only log client errors at debug level, server errors at error level
+    if (err_code >= 500) {
+        log_error("Server error response: %d %s", err_code, http_status_message(err_code));
+    } else {
+        log_debug("Client error response: %d %s", err_code, http_status_message(err_code));
+    }
+    close(client_sock_fd);
+    pthread_exit(NULL); // Exit the thread since we're done with this connection
 }
 
 void *connection_handler(void *arg) {
@@ -20,54 +33,58 @@ void *connection_handler(void *arg) {
     while (1) {
         nbytes = recv(client_sock_fd, req_buf, sizeof(req_buf), 0);
         if (nbytes == -1) {
-            log_error("recv %s at %d: %s", __FILE__, __LINE__, strerror(errno));
+            log_error("Connection read error: %s", strerror(errno));
             break;
         }
         if (nbytes == 0) {
-            log_info("recv %s at %d: %s", __FILE__, __LINE__, "Connection Gracefully Closed By Peer");
+            // Client closing connection is normal, only log at debug level
+            log_debug("Client closed connection");
             break;
         }
 
         req_buf[nbytes] = '\0';
-        fprintf(stdout, "REQ:-\n%s\n", req_buf);
-        fprintf(stdout, "%s\n", "--------------------------------");
-
         err_code = parse_request(&req, req_buf, nbytes);
         if (err_code != 0) {
-            log_info("parse_request %s at %d:  %s", __FILE__, __LINE__, strerror(errno));
             http_return_error(err_code, client_sock_fd);
             continue;
         }
 
-        fprintf(stdout, "PARSED REQ:-\n");
-        fprintf(stdout, "METHOD: %ld\n", req.start_line.method);
-        fprintf(stdout, "URI: %s\n", req.start_line.uri);
-        fprintf(stdout, "VERSION: %ld\n", req.start_line.version);
-        fprintf(stdout, "HOST: %s\n", req.host);
-        fprintf(stdout, "Connection: %d\n", req.connection);
-        fprintf(stdout, "%s\n", "--------------------------------");
+        // Only log request details at debug level
+        log_debug("Processing request: %s %s", Methods[req.start_line.method], req.start_line.uri);
 
         res_body_size = MAX_RES_BODY_LEN;
         err_code = get_resource(req.start_line.uri, res_body_buf, &res_body_size);
+        
+        if (res_body_size < 0) {
+            // Handle negative size as HTTP error code
+            http_return_error(-res_body_size, client_sock_fd);
+            continue;
+        }
+        
         if (err_code > 1) {
-            log_info("get_resource: %s at %d", __FILE__, __LINE__);
             http_return_error(err_code, client_sock_fd);
             continue;
         }
-        nbytes = snprintf(res_buf, MAX_RES_LEN, (err_code ? DIR_RES_FMT_STR : FILE_RES_FMT_STR), res_body_size, res_body_buf);
 
-        res_buf[nbytes] = '\0';
-        fprintf(stdout, "RES:-\n%s\n", res_buf);
-        fprintf(stdout, "%s\n", "--------------------------------");
+        nbytes = snprintf(res_buf, MAX_RES_LEN, (err_code ? DIR_RES_FMT_STR : FILE_RES_FMT_STR), 
+                         res_body_size, res_body_buf);
+
+        if (nbytes >= MAX_RES_LEN) {
+            log_warn("Response truncated due to buffer limits");
+            http_return_error(HTTP_INTERNAL_SERVER_ERROR, client_sock_fd);
+            continue;
+        }
 
         nbytes = send(client_sock_fd, res_buf, strlen(res_buf), 0);
         if (nbytes == -1) {
-            log_error("send %s at %d: %s", __FILE__, __LINE__, strerror(errno));
+            log_error("Failed to send response: %s", strerror(errno));
             break;
         }
+        
+        // Only log successful responses at debug level
+        log_debug("Response sent: 200 OK (%zd bytes)", nbytes);
     }
 
     close(client_sock_fd);
-
     return NULL;
 }

@@ -45,7 +45,7 @@ void convert_to_absolute_path(char *path, size_t path_len) {
 ssize_t get_file_resource(char *path, char *file_buf, size_t file_size_max) {
     FILE *fd = fopen(path, "rb");
     if (fd == NULL) {
-        log_info("fopen %s at %d: %s", __FILE__, __LINE__, strerror(errno));
+        log_debug("Resource not found: %s", path);
         return -1;
     }
 
@@ -54,13 +54,15 @@ ssize_t get_file_resource(char *path, char *file_buf, size_t file_size_max) {
     fseek(fd, 0, SEEK_SET);
 
     if (filesize > file_size_max) {
-        log_error("FILE TOO LARGE");
-        return -1;
+        log_warn("Resource exceeds maximum allowed size: %s (%zu bytes)", path, filesize);
+        fclose(fd);
+        return -HTTP_PAYLOAD_TOO_LARGE;  // Return negative HTTP code to distinguish from valid file sizes
     }
 
     ssize_t nchunks = fread(file_buf, filesize, 1, fd);
     if (nchunks == -1) {
-        log_error("read %s at %d: %s", __FILE__, __LINE__, strerror(errno));
+        log_error("Failed to read resource: %s (%s)", path, strerror(errno));
+        fclose(fd);
         return -1;
     }
 
@@ -78,7 +80,7 @@ ssize_t get_dir_resource(char *path, char *dir_buf, size_t dir_size_max) {
     struct dirent *entry;
     DIR *dir = opendir(path);
     if (!dir) {
-        log_error("opendir(path): %s", strerror(errno));
+        log_debug("Directory not accessible: %s (%s)", path, strerror(errno));
         return -1;
     }
 
@@ -135,7 +137,7 @@ int get_resource(char *uri, char *buf, ssize_t *buf_len) {
     char test_path[MAX_PATH_LEN];
 
     if (getcwd(curr_path, sizeof(curr_path)) == NULL) {
-        log_info("getcwd in %s at %d: %s", __FILE__, __LINE__, strerror(errno));
+        log_error("Failed to get current working directory: %s", strerror(errno));
         return HTTP_FORBIDDEN;
     }
 
@@ -145,21 +147,22 @@ int get_resource(char *uri, char *buf, ssize_t *buf_len) {
     convert_to_absolute_path(test_path, strlen(test_path));
 
     if (strlen(test_path) < strlen(curr_path)) {
-        log_info("PATH SMALLER THAN SERVER ROOT: %s at %d", __FILE__, __LINE__);
+        log_warn("Access attempt outside server root: %s", test_path);
         return HTTP_FORBIDDEN;
     }
     if (strncmp(test_path, curr_path, strlen(curr_path)) != 0) {
-        log_info("PATH OUTSIDE OF SERVER ROOT: %s at %d", __FILE__, __LINE__);
+        log_warn("Access attempt outside server root: %s", test_path);
         return HTTP_FORBIDDEN;
     }
-    printf("%s\n", test_path);
-    fflush(stdout);
+
+    // Removed unnecessary printf debug statement
+
     if (access(test_path, F_OK) != 0) {
-        log_info("access %s at %d: %s", __FILE__, __LINE__, strerror(errno));
+        log_debug("Resource not found: %s", test_path);
         return HTTP_NOT_FOUND;
     }
     if (access(test_path, R_OK) != 0) {
-        log_info("access %s at %d: %s", __FILE__, __LINE__, strerror(errno));
+        log_warn("Resource not readable: %s", test_path);
         return HTTP_FORBIDDEN;
     }
 
@@ -176,12 +179,13 @@ int get_resource(char *uri, char *buf, ssize_t *buf_len) {
     }
 
     if (nbytes < -1) {
-        log_info("REQUEST FAILED DUE TO PREVIOUS ISSUE: %s at %d", __FILE__, __LINE__);
+        log_error("Resource handling failed: %s", test_path);
         return HTTP_INTERNAL_SERVER_ERROR;
     }
 
+    // Only log truncation at debug level since it's not critical
     if (nbytes >= MAX_RES_BODY_LEN-1) {
-        log_info("RESPONSE TRUNCATED: %s at %d", __FILE__, __LINE__);
+        log_debug("Response truncated for %s", test_path);
     }
 
     *buf_len = nbytes;

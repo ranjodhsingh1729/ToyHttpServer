@@ -28,6 +28,8 @@ struct request
     char body[MAX_REQ_BODY_LEN];
 };
 
+extern const char *Methods[];
+
 void get_token(char delimiter, size_t *p, char *tbuf, size_t tbuf_size, char *buf, size_t buf_size);
 int parse_request(struct request *req, char *buf, size_t buf_size);
 
