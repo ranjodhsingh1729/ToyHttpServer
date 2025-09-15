@@ -3,9 +3,9 @@ import concurrent.futures
 import time
 
 # Configuration
-URL = "http://127.0.0.1:8000"     # ← Replace with your target URL
-NUM_REQUESTS = 10000           # ← Total number of requests to fire
-MAX_WORKERS = 10000               # ← Number of concurrent threads
+URL = "http://127.0.0.1:8000"
+NUM_REQUESTS = 10000
+MAX_WORKERS = 10000
 
 def send_request(session):
     """
@@ -49,8 +49,8 @@ def load_test(num_requests, max_workers):
 
     # Report
     print(f"Total requests sent:       {total_requests}")
-    print(f"  ↳ Successful (200):       {success_count}")
-    print(f"  ↳ Failed (non-200/err):   {error_count}")
+    print(f"Successful (200):       {success_count}")
+    print(f"Failed (non-200/err):   {error_count}")
     print(f"Total wall-clock time:      {total_time:.2f} sec")
     print(f"Requests per second (RPS):  {rps:.2f}")
     print(f"Average resp. time (200):   {avg_resp_time:.4f} sec")
